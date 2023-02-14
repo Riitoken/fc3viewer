@@ -1,0 +1,59 @@
+class           license
+
+doc             https://docs.google.com/document/d/1xAZ-WAHxwBuu1H-LszPGuMQXLryebBYzBdrHzV2Gom0
+type            GLORYWARE
+ipname          THE GLORYWARE LICENSE (GWL)
+author          Ray Edward Bornert II
+aka             Riitoken
+date            2020-SEP-22 TUE
+copyright       2020 Riitoken, all rights reserved.
+motive          For the Glory
+warranty        As is
+royalty         Free
+format          r5
+parsing         sscanf(line,"%s %s[^\r^\n]s",lval,rval);
+
+rules           begintext
+
+THE GLORYWARE LICENSE
+
+Intellectual property placed into/under the authority of THE GLORYWARE LICENSE
+shall be governed by the following obligations and restrictions upon the author and the consumer.
+
+If you voluntarily choose to protect your intellectual property with The GWL, you will do the following:
+
+ - Publish your license text in a file name ending with LICENSE.TXT for public viewing.
+ - Format your LICENSE.TXT content as r5, as exemplified by this file.
+ - Identify the type    as GLORYWARE.
+ - Identify the ipname  as Your chosen name for your intellectual property.
+ - Identify the author  as Your legal name.
+ - Identify the date    as When you invoked The GWL.
+ - Identify the royalty as free.
+ - Additional fields are optional.
+
+If you voluntarily choose to use intellectual property protected by The GWL, you will do the following:
+
+ - Retain the original GWL text/mark, provided by the author, in/on each relevant file.
+ - Publically honor the author for their work in one or more of the following:
+     - For work open to public viewing, retain the original GWL text/mark provided by the author.
+     - For work closed to public viewing, provide a public credit (somewhere), opening/closing credits, about page, etc.
+     - Post a public tweet to the author with hashtag #GLORYWARE.
+     - Send an email to the author.
+     - Send a text message to the author.
+     - Mail a postcard to the author.
+     - In call cases, glory is paid if and only if the author (or assigns) can behold the glory.
+
+endtext
+
+cite            begintext
+
+    Wise wealth : Luke 16:9.
+    Smaug v. Bilbo : The Hobbit.
+    NYC v. Howard Roarke : The Fountainhead.
+    Brother Maynard v. The Rabbit : Monty Python and The Holy Grail.
+    Copyright treaty : The Berne Convention; 1886,1989,2009.
+    Thisdoc :  https://docs.google.com/document/d/1xAZ-WAHxwBuu1H-LszPGuMQXLryebBYzBdrHzV2Gom0
+
+endtext
+
+endclass

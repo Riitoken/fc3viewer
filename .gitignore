@@ -1,0 +1,10 @@
+
+# Visual Studio files
+
+*.db
+*.opendb
+.vs/*
+
+# build folders
+x64/*
+Release/*
