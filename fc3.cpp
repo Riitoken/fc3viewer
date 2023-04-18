@@ -143,6 +143,18 @@ bool fc3_header_s::is_image_hash() const
 	return is_image_hash_one();
 }
 
+size_t fc3_header_s::calc_file_size() const
+{
+	int dz = 1 << (tolower(format) - 'a'); // data size
+	size_t z = 0
+		+ sizeof(*this)
+		+ dz * 8 * nverts
+		+ sizeof(fc3_tri_s::a) * 3 * ntris
+		+ sizeof(fc3t::untc) * cwidth * cheight
+		;
+	return z;
+}
+
 struct unit_mcoeff_s
 {
 	char name[16]; // unit name
@@ -612,6 +624,8 @@ int fc3_s::save( const char* fn )
 			return fc3_fail_write;
 		}
 	}
+
+	fclose(fp);
 
 	return fc3_ok;
 }
@@ -1804,6 +1818,32 @@ void fc3_s::swell()
 	}
 }
 
+void fc3_s::swellx()
+{
+	fc3_vec_t vhi,vlo;
+	find_bounds(vhi,vlo);
+	double xfact = 1.0 / max(fabs(vhi.x),fabs(vlo.x));
+	for(int i=0;i<h.nverts;i++)
+		pv[i].v.x *= xfact;
+}
+void fc3_s::swelly()
+{
+	fc3_vec_t vhi,vlo;
+	find_bounds(vhi,vlo);
+	double yfact = 1.0 / max(fabs(vhi.y),fabs(vlo.y));
+	for(int i=0;i<h.nverts;i++)
+		pv[i].v.y *= yfact;
+}
+void fc3_s::swellz()
+{
+	fc3_vec_t vhi,vlo;
+	find_bounds(vhi,vlo);
+	double zfact = 1.0 / max(fabs(vhi.z),fabs(vlo.z));
+	for(int i=0;i<h.nverts;i++)
+		pv[i].v.z *= zfact;
+}
+
+
 void fc3_s::growx( const float factor )
 {
 	if(factor)for(int i=0;i<h.nverts;i++)
@@ -2137,3 +2177,148 @@ bool fc3_s::unit_test_endian( const std::string& path )
 
 	return true;
 }
+
+#if 0
+/*
+	imagine a circle centered at a distance of 'radius' above(+) / below(-) the model
+	visit each vertex and slide it along the radial line toward the center
+	such that the distance from center is what the vertical flat distance was.
+*/
+void fc3_s::spherey(const double radius)
+{
+	fc3_vecf_t C(0,radius,0);
+	for(int i=0;i<h.nverts;i++)
+	{
+		fc3_vecf_t delta = pv[i].v - C;
+		double r = fabs(delta.y);
+		delta.normalize();
+		delta*=r;
+		pv[i].v = delta;
+	}
+	calc_normals();
+}
+#endif
+
+/*
+	imagine an axis aligned with the fore/back Z axis
+	the axis is situated a distance of 'radius' above(+) below(-) from the model center
+	we want to curl all the points around the axis
+*/
+void fc3_s::curly(const double rady)
+{
+	double sign = (0<rady) ? -1 : +1;
+	const double pi = acos(-1);
+	fc3_vecf_t C(0,rady,0);
+	for(int i=0;i<h.nverts;i++)
+	{
+		fc3_vecf_t p = pv[i].v;
+		C.z = p.z;
+		fc3_vecf_t V = p - C;
+		double r = fabs(V.y);
+		double radians = p.x / r;
+		V.x = sin(radians)*r;
+		V.y = cos(radians)*r*sign;
+		pv[i].v = (C+V);
+	}
+	calc_normals();
+}
+
+// expect image
+int fc3_s::make_from_image()
+{
+	if(pv) {delete pv; pv=NULL;}
+	if(pt) {delete pt; pt=NULL;}
+
+	int dx=h.cwidth;
+	int dy=h.cheight;
+
+	h.nverts = dx*dy;
+	h.ntris = (dx-1)*(dy-1)*2;
+
+	pv = new fc3_vert_s[ h.nverts ];
+	pt = new fc3_tri_s[ h.ntris ];
+	if(!pv || !pt)
+	{
+		return fc3_fail_heap;
+	}
+
+	double zpix2 = 0.5 / (double)dy;
+	double xpix2 = 0.5 / (double)dx;
+
+	int k=0;
+	for(int z=0;z<dy;z++)
+	for(int x=0;x<dx;x++)
+	{
+		unsigned int pix = pc[k];
+		unsigned char* puc = (unsigned char*)&pix;
+		float avg = (puc[0]+puc[1]+puc[2]); avg/=3;
+		pv[k].v.z=z;
+		pv[k].v.x=x;
+		pv[k].v.y= avg / 32;
+		pv[k].t.x = xpix2 + (float)x/dx;
+		pv[k].t.y = zpix2 + (float)z/dy;
+		pv[k].t.z = 0;
+		pv[k].n.x=0;
+		pv[k].n.y=1;
+		pv[k].n.z=0;
+		k++;
+	}
+
+	k=0;
+	for(int z=0;z<dy-1;z++)
+	for(int x=0;x<dx-1;x++)
+	{
+		pt[k].a = z*dx+x;
+		pt[k].b = (z+1)*dx+(x+1);
+		pt[k].c = (z+0)*dx+(x+1);
+		k++;
+		pt[k].a = z*dx+x;
+		pt[k].b = (z+1)*dx+(x+0);
+		pt[k].c = (z+1)*dx+(x+1);
+		k++;
+	}
+
+	return fc3_ok;
+}
+
+int fc3_s::swap_cbytes( const unsigned a, const unsigned b )
+{
+	if(NULL==pc)
+		return fc3_bad_arg; // no image
+	if(3<a || 3<b)
+		return fc3_bad_arg;
+
+	unsigned char* puc = (unsigned char*)pc;
+	int npix = h.cheight*h.cwidth;
+	for(int i=0;i<npix;i++)
+	{
+		std::swap(puc[a],puc[b]);
+		puc += 4;
+	}
+	return fc3_ok;
+}
+
+int fc3_s::invert_color()
+{
+	if(NULL==pc)
+		return fc3_bad_arg; // no image
+
+	int npix = h.cheight*h.cwidth;
+	for(int i=0;i<npix;i++)
+		pc[i] ^= 0x00ffffff;
+	return fc3_ok;
+}
+
+int fc3_s::get_header( const char* fn, fc3_header_s& h )
+{
+	if(NULL==fn)
+		return fc3_bad_arg;
+	h.reset();
+	FILE* fp = fopen(fn,"rb");
+	size_t result = fread(&h, sizeof(fc3_header_s), 1, fp );
+	fclose(fp);
+	if(1!=result)
+		return fc3_fail_read;
+	return fc3_ok;
+}
+

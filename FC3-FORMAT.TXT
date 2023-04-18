@@ -1,0 +1,227 @@
+Fast Consistent 3D (FC3)
+=========================
+Author: Ray E. Bornert II
+=========================
+
+
+==========================================
+The FC3 File Layout
+==========================================
+Header 
+...     nbytes = 32
+Vertices
+...     nbytes = nverts * 8 * 1 (format a)
+...                         * 2 (format b)
+...                         * 4 (format c)
+...                         * 8 (format d)
+Faces
+...	nbytes = ntris * 12
+Image
+...     nbytes = cwidth * cheight * 4
+==========================================
+
+=================================================================
+The FC3 File Header Version(a), little endian description
+=================================================================
+|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|
++---------------+---------------+---------------+---------------+
+|  sigv=97 (a)  |  sig3=51 (3)  |  sigC=67 (C)  |  sigF=70 (F)  |
++---------------+---------------+---------------+---------------+
+|    format     |     zaxis     |     yaxis     |     xaxis     |
++---------------+---------------+---------------+---------------+
+|    tscale     |    vscale     |             endian            |
++---------------+---------------+---------------+---------------+
+|            cheight            |            cwidth             |
++---------------+---------------+---------------+---------------+
+|                            nverts                             |
++---------------+---------------+---------------+---------------+
+|                            ntris                              |
++---------------+---------------+---------------+---------------+
+|                            unitlen                            |
+|                                                               |
++---------------+---------------+---------------+---------------+
+|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|7 6 5 4 3 2 1 0|
+=================================================================
+
+
+=========================
+HEADER FIELD DESCRIPTIONS
+=========================
+
+sigF
+----
+The file signature 1st byte is upper case 'F' (ascii 70).
+
+sigC
+----
+The file signature 2nd byte is upper case 'C' (ascii 67).
+
+sig3
+----
+The file signature 3rd byte is digit '3' (ascii 51).
+
+sigv
+----
+The file signature 4th byte is lower case 'a' (ascii 97).
+The next file version will receive the letter 'b' (ascii 98).
+
+xaxis
+-----
+The character name of the positive x axis ( RL UD BF )
+
+R=Right
+L=Left
+U=Up
+D=Down
+B=Back
+F=Front
+
+yaxis
+-----
+The character name of the positive y axis ( RL UD BF )
+
+zaxis
+-----
+The character name of the positive z axis ( RL UD BF )
+
+format
+------
+A Single character [a,b,c,d] (ascii 97-100) indicating the size of the vertex data
+a data is 1 bytes
+b data is 2 bytes
+c data is 4 bytes
+d data is 8 bytes
+
+endian
+------
+A 16 bit value that carries the native endian of the system that wrote this file.
+The most significant byte (MSB) should be 'e' (ascii 101).
+The least significant byte (LSB) should be 'E' (ascii 69).
+The native hex value of 0x6545 'eE' indicates correct endian alignment.
+The native hex value of 0x4565 'Ee' indicates opposite endian alignment for fields
+ endian
+ cwidth
+ cheight
+ nverts
+ ntris
+ unitlen
+These larger fields must be byte reversed before they can be safely referenced.
+
+vscale
+------
+A signed 8bit [-128,+127] exponent that defines the maximum vertex XYZ value.
+
+To recover the original vertex scalars XYZ, use the following formula:
+a data:  x = vx/(2^7-1) * 2^vscale * unitlen
+b data:  x = vx/(2^15-1) * 2^vscale * unitlen
+c data:  x = vx/(2^31-1) * 2^vscale * unitlen
+d data:  x = vx/(2^63-1) * 2^vscale * unitlen
+
+To recover the original normal scalars IJK, use the following formula:
+a data:  i = ni/(2^7-1)
+b data:  i = ni/(2^15-1)
+c data:  i = ni/(2^31-1)
+d data:  i = ni/(2^63-1)
+
+tscale
+------
+A signed 8bit [-128,+127] exponent that defines the maximum texture coord UV value
+
+To recover the original texture scalars UV, use the following formula:
+a data:  u = tu/(2^7-1)
+b data:  u = tu/(2^15-1)
+c data:  u = tu/(2^31-1)
+d data:  u = tu/(2^63-1)
+
+cwidth
+------
+The image width in pixels.  Zero indicates no image.
+
+cwidth
+------
+The image height in pixels.  Zero indicates no image.
+
+nverts
+------
+The number of vertices stored in this file
+
+nverts
+------
+The number of triangle faces stored in this file
+
+unitlen
+-------
+An IEEE 64 bit floating point value that provides the vertex units in meters.
+Example: The unitlen value of 0.0254 meters = 1 inch.
+
+/*
+The C/C++ header
+*/
+struct fc3_header_s
+{
+	// 4 byte file signature
+	signed char sigF;	// 'F'
+	signed char sigC;	// 'C'
+	signed char sig3;	// '3'
+	signed char sigv;	// 'a'
+
+	// 4 bytes orientation and data size
+	//		3 ascii bytes - axis orientation string
+	//		1 ascii bytes - internal data format
+	signed char	xaxis; // ascii default is 'R' for rightward
+	signed char	yaxis; // ascii default is 'U' for upward
+	signed char	zaxis; // ascii default is 'B' for backward
+	signed char	format; // ascii case-insensitive indicator for vertex data size: a=1byte, b=2byte, c=4byte, d=8byte, e=16byte, etc., etc.
+
+	// 4 bytes
+	unsigned short int endian; // default: is msb='e' (ascii 101), lsb='E' (ascii 69), hex value 0x6545
+	signed char vscale; // 2^vscale is maximum original value of any vertex coord
+	signed char tscale; // 2^tscale is maximum original value of any texture coord
+
+	// 4 bytes texture size
+	unsigned short int cwidth	; // canvas texture width in pixels.  1 pixel = 4 bytes.
+	unsigned short int cheight	; // canvas texture height in pixels.  1 pixel = 4 bytes.
+
+	// 8 bytes counts
+	unsigned long int nverts	; // total number of vertices in the file.  first vertex is 0, final vertex is nverts-1
+	unsigned long int ntris	; // total number of triangle faces.  first triangle is 0, final triangle is ntris-1
+
+	// 8 bytes
+	double  unitlen; // the metric length of a one unit  i.e. (0.0254 meters == 1 inch)
+};
+
+==================
+VERTEX DATA LAYOUT
+==================
+Each vertex has 8 elements of equal size in the following order:
+vx - the vertex x component
+vy - the vertex y component
+vz - the vertex z component
+ni - the normal i component
+nj - the normal j component
+nk - the normal k component
+tu - the texture u component
+tv - the texture v component 
+The actual size of each element is given by the format field.
+a data is 1 bytes/element   (8 bytes/vertex)
+b data is 2 bytes/element  (16 bytes/vertex)
+c data is 4 bytes/element  (32 bytes/vertex)
+d data is 8 bytes/element  (64 bytes/vertex)
+
+=========================
+TRIANGLE FACE DATA LAYOUT
+=========================
+Each triangle face has 3 elements of equal size (32 bits each) in the following order:
+A B C  (12 bytes per face)
+Each element is a zero-based vertex array index [0,nverts-1].
+
+=======================
+IMAGE PIXEL DATA LAYOUT
+=======================
+The image is stored in scanline order bottom to top.
+Each pixel is 4 bytes stored in native endian order.
+byte3 byte2 byte1 byte0
+-----------------------
+alpha  red  green  blue
+-----------------------
+There is no image compression.

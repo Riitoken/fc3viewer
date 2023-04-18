@@ -114,6 +114,8 @@ struct fc3_header_s
 	bool is_image_hash_one() const;
 	bool is_image_hash() const;
 
+	size_t calc_file_size() const;
+
 }; // end class fc3_header
 
 #pragma pack()
@@ -535,6 +537,10 @@ struct fc3_s
 
 	void center();
 	void swell();
+	void swellx();
+	void swelly();
+	void swellz();
+
 	void sink();
 	void grow( const float f );
 	void growx( const float f );
@@ -578,6 +584,15 @@ struct fc3_s
 	fc3_error_t save_triangle_endian(const char* fn, const bool doend);
 
 	static bool unit_test_endian( const std::string& path );
+
+	void curly(const double radius);
+
+	int make_from_image();
+
+	int swap_cbytes( const unsigned a, const unsigned b );
+	int invert_color();
+
+	static int get_header( const char* fn, fc3_header_s& h );
 
 
 }; // end struct fc3_s
