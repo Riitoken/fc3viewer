@@ -4,7 +4,7 @@
 class        license
 type         GLORYWARE
 ipname       FC3
-trademark    FARCRAFT®
+trademark    FARCRAFTÂ®
 author       Ray Edward Bornert II
 date         2020-SEP-22 TUE
 royalty      Free
@@ -624,6 +624,8 @@ int fc3_s::save( const char* fn )
 			return fc3_fail_write;
 		}
 	}
+	
+	fclose(fp);
 
 	fclose(fp);
 
