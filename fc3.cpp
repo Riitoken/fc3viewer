@@ -2519,7 +2519,7 @@ void fc3_s::spherey(const double radius)
 void fc3_s::curly(const double rady)
 {
 	double sign = (0<rady) ? -1 : +1;
-	const double pi = acos(-1);
+	//const double pi = acos(-1);
 	fc3_vecf_t C(0,rady,0);
 	for(int i=0;i<h.nverts;i++)
 	{
@@ -2738,8 +2738,8 @@ bool fc3_s::is_intersected( const fc3_tri_s& tri, const fc3_vec_t& v, const fc3_
 
     fc3_vec_t edge1 = vb.v - va.v;
     fc3_vec_t edge2 = vc.v - va.v;
-	fc3_vec_t h = fc3_vec_t::cross( dir,edge2 );
-    float a = fc3_vec_t::dot(edge1, h);
+	fc3_vec_t hh = fc3_vec_t::cross( dir,edge2 );
+    float a = fc3_vec_t::dot(edge1, hh);
 
 	const float eps = 0.00001;
     if (a > -eps && a < +eps)
@@ -2749,7 +2749,7 @@ bool fc3_s::is_intersected( const fc3_tri_s& tri, const fc3_vec_t& v, const fc3_
 
     float f = 1.0f / a;
     fc3_vec_t s = v-va.v;
-    float u = f * fc3_vec_t::dot(s, h);
+    float u = f * fc3_vec_t::dot(s, hh);
 
     if (u < 0.0 || u > 1.0)
 	{

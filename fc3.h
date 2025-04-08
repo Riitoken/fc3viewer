@@ -190,10 +190,10 @@ struct fc3_vector_template
 
 	T maxabs() const
 	{
-		T a=fabs(x);
-		T b=fabs(y);
-		T c=fabs(z);
-		T d=(a>b)?(a):(b);
+		T a=(T)fabs(x);
+		T b=(T)fabs(y);
+		T c=(T)fabs(z);
+		T d=(T)((a>b)?(a):(b));
 		d=(d>c)?(d):(c);
 		return d;
 	}

@@ -430,6 +430,7 @@ void reload()
 
 void init()
 {
+	/*
 	if(false==fc3t::is_valid_types())
 	{
 		// This is a fatal error
@@ -442,6 +443,7 @@ void init()
 		);
 		exit(0);
 	}
+	*/
 
 	select_vertical_sync();
 
@@ -450,6 +452,7 @@ void init()
 	enable();
 }
 
+#if 0
 bool is_cooldown()
 {
 	static double t0 = 0;
@@ -464,11 +467,11 @@ bool is_cooldown()
 	t0 = t1;
 	return true;
 }
+#endif
 
 void display()
 {
-	if(false==is_cooldown())
-		return;
+	//if(false==is_cooldown()) return;
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	///////////////////////////////////////////////////
