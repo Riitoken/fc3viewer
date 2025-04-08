@@ -16,26 +16,13 @@ endclass
 #define _fc3_h_
 
 #include <string>
+#include <map>
 #include <math.h>
+#include <vector>
+#include <string>
+#include "abcdef.h"
 
-namespace fc3t {
-
-  typedef   signed            char  inta; // 1 == sizeof(inta)
-  typedef   signed short       int  intb; // 2 == sizeof(intb)
-  typedef   signed long        int  intc; // 4 == sizeof(intc)
-  typedef   signed long long   int  intd; // 8 == sizeof(intd)
-  typedef unsigned            char  unta; // 1 == sizeof(unta)
-  typedef unsigned short       int  untb; // 2 == sizeof(untb)
-  typedef unsigned long        int  untc; // 4 == sizeof(untc)
-  typedef unsigned long long   int  untd; // 8 == sizeof(untd)
-  typedef                    float  floc; // 4 == sizeof(floc)
-  typedef                   double  flod; // 8 == sizeof(flod)
-
-bool is_valid_types();
-
-}; // end namespace fc3t
-
-typedef fc3t::floc fc3f;
+typedef floc fc3f;
 
 typedef enum {
 
@@ -62,6 +49,25 @@ void fc3_reverse_bytes( void* v, const int nbytes );
 	header is explicitly padded below
 */
 #pragma pack(1)
+
+struct fc3_header_flags_s
+{
+	/////////////////////////////////////////////////////////////////
+	// LSB
+	/////////////////////////////////////////////////////////////////
+	untb	alpha		: 1; // model wants alpha blended
+	untb	collision	: 1; // collision enabled
+	untb	lofill		: 5; // future use
+	untb	lsb0		: 1; // must always be 0 for lsb byte
+	/////////////////////////////////////////////////////////////////
+	// MSB
+	/////////////////////////////////////////////////////////////////
+	untb	hifill		: 6; // future use
+	untb	exact		: 1; // true for exact, false for lossy
+	untb	msb1		: 1; // must always be 1 for msb byte
+	/////////////////////////////////////////////////////////////////
+};
+
 struct fc3_header_s
 {
 	// 4 byte file signature
@@ -106,6 +112,8 @@ struct fc3_header_s
 	bool is_endian_valid() const;
 	bool is_endian_correct() const;
 	bool is_do_endian() const;
+	bool is_eE() const; // legacy endian values
+
 	size_t get_npix() const;
 
 	static double get_unit_meters( const std::string& name );
@@ -115,6 +123,21 @@ struct fc3_header_s
 	bool is_image_hash() const;
 
 	size_t calc_file_size() const;
+
+	// FLAGS clever overloaded use of the endian bits
+	void enable_flags();
+	bool has_flags() const;
+	void set_flag_bit( const int b, const bool v );
+	bool get_flag_bit( const int b ) const;
+	int get_alpha() const;
+	int get_collision() const;
+	int get_exact() const;
+
+	void set_alpha( const bool v );
+	void set_collision( const bool v );
+	void set_exact( const bool v );
+	void get_endian( unta& msb, unta& lsb ) const;
+	void set_endian( unta msb, unta lsb );
 
 }; // end class fc3_header
 
@@ -154,6 +177,16 @@ struct fc3_vector_template
 	{
 		x=y=z=0;
 	}
+
+	/*
+	bool operator < ( const T& a ) const
+	{
+		if(x < a.x)return true;
+		if(y < a.y)return true;
+		if(z < a.z)return true;
+		return false;
+	}
+	*/
 
 	T maxabs() const
 	{
@@ -234,6 +267,11 @@ struct fc3_vector_template
 		y *= scalar;
 		z *= scalar;
 		return *this;
+	}
+
+	static T dot( const fc3_vector_template &v1,  const fc3_vector_template &v2 )
+	{
+		return( v1.x * v2.x + v1.y * v2.y + v1.z * v2.z  );
 	}
 
 	// cross product
@@ -399,6 +437,9 @@ struct fc3_s
 	fc3_tri_s* pt;
 	unsigned int* pc;
 
+	std::vector<std::string> vso; // the string name of the object id
+	std::vector<unta> vto; // the object id for each triangle.
+
 	int loadva(FILE* fp);
 	int loadvb(FILE* fp,const bool doend);
 	int loadvc(FILE* fp,const bool doend);
@@ -447,11 +488,14 @@ struct fc3_s
 	int convert_axis_to_opengl() { return convert_axis_to("RUB"); }
 
 	void set_scaling_exponents( const signed char v, const signed char t );
+
 	void set_vertex_radius( const double r );
 	void set_texture_radius( const double r );
 	void find_bounds( double& vhi, double& thi );
 	void find_bounds( fc3_vec_t& vhi, fc3_vec_t& vlo );
 	void calculate_scaling_exponents();
+
+	double get_vertex_radius() const;
 
 	/**
 	* Optionally called after calling load().  Apply the vscale exponent to the vertex coordinates. Apply the tscale exponent to the texture coordinates.\n
@@ -475,6 +519,10 @@ struct fc3_s
 	bool heap( const size_t ntris, const size_t cw, const size_t ch );
 	bool set_image( const unsigned long int* pbits, const size_t cw, const size_t ch );
 	bool set_image( const unsigned int* pbits, const size_t cw, const size_t ch );
+
+	void take_image( unsigned int* &pbits, int& w, int& h );
+	void give_image( unsigned int* &pbits, int& w, int& h );
+
 	void get_dimensions( double& width, double& height, double& length ) const;
 	double get_extent() const;
 	double get_radius() const;
@@ -486,6 +534,7 @@ struct fc3_s
 	* For each vertex, calculate a new normal as the summed average of the triangle face normals in which the vertex participates
 	**/
 	void calc_normals();
+	void renorm();
 	void negate_normals();
 	int sort_verts();
 
@@ -522,10 +571,16 @@ struct fc3_s
 	int export_obj_mtl( const std::string& fn, const std::string& mtl="" );
 	int import_obj( const std::string& fn );
 
+	//static int split_obj( string& path, const string& objnam );
+
 	fc3_error_t make_tetrahedron();
 	fc3_error_t make_sphere( const int nsplits );
 	fc3_error_t split_faces();
 	fc3_error_t make_cube( const int nsplits );
+
+	fc3_error_t make_globe( const int nlayers );
+
+	fc3_error_t make_circle( const int nsides );
 
 	void add_face( const fc3_vert_s& a, const fc3_vert_s& b, const fc3_vert_s& c );
 	void add_quad( const fc3_vert_s& va, const fc3_vert_s& vb, const fc3_vert_s& vc, const fc3_vert_s& vd );
@@ -534,6 +589,8 @@ struct fc3_s
 
 	void sphere_normals();
 	void sphere_texture();
+	void horizontal_texture();
+	void vertical_texture();
 
 	void center();
 	void swell();
@@ -541,6 +598,7 @@ struct fc3_s
 	void swelly();
 	void swellz();
 
+	void rise();
 	void sink();
 	void grow( const float f );
 	void growx( const float f );
@@ -577,6 +635,7 @@ struct fc3_s
 	fc3_error_t set_image_hash_one( const unsigned long long int hash );
 
 	double yfloor();
+	double yceil();
 
 	fc3_error_t add_verts( const fc3_vert_s* va, const int nv );
 
@@ -594,7 +653,172 @@ struct fc3_s
 
 	static int get_header( const char* fn, fc3_header_s& h );
 
+	static int copy_image( const fc3_s& fr, fc3_s& to );
+
+	bool set_alpha( const unsigned int* pbits, const size_t cw, const size_t ch );
+
+	int count_unused_verts() const;
+
+	bool is_inside( const fc3_vec_t& p );
+
+	bool is_intersected( const fc3_tri_s& tri, const fc3_vec_t& v, const fc3_vec_t& dir );
+
+	int make_parts();
+
+	fc3_error_t add( const std::string& fn );
+
+	size_t get_image_size() const;
+
+	struct mtl_s
+	{
+		std::map< std::string, std::map<std::string,std::string> > m;
+		std::map< std::string, std::map<std::string,std::string> >::iterator it;
+	};
+
+	static int load_materials(  const std::string& fn, mtl_s& mtl );
+
+	static double get_metric_radius( const std::string& fn );
+
+	void add_channel( const int ch, const int delta );
+
+	int set_objects( const std::vector<std::string>& ps, const std::vector<unta>& pv );
+
+	void set_exact( const bool v );
+	bool get_exact() const;
+
+	struct fc3img_s
+	{
+		untc* pbits;
+		untc  width;
+		untc  height;
+		fc3img_s() : pbits(NULL),width(0),height(0){}
+	};
+
+	int get_triangle_bounds( const untc tndx,  fc3_vec_t& vhi, fc3_vec_t& vlo );
+
+	void delete_vert();
+	void delete_tri();
+	void delete_img();
+
+	fc3_error_t make_platform( const int dimquads, const int curvequads );
 
 }; // end struct fc3_s
+
+
+#if 1
+template<typename T>
+struct array2d
+{
+	T* pa;
+	int nrow;
+	int ncol;
+	bool heap;
+
+	int get_nitem() const
+	{
+		return nrow*ncol;
+	}
+	int get_index( const int r, const int c ) const
+	{
+		return ncol*r+c;
+	}
+
+	void reset()
+	{
+		if(NULL!=pa && heap)
+			delete pa;
+		pa=NULL;
+		heap=false;
+		nrow=ncol=0;
+	}
+
+	void init( const int nr, const int nc )
+	{
+		reset();
+		pa=new T[(nrow=nr)*(ncol=nc)];
+		heap=true;
+	}
+
+	array2d() : pa(NULL),nrow(0),ncol(0),heap(false) {}
+
+	array2d( const int nr, const int nc ) : pa(NULL), nrow(nr), ncol(nc),heap(false)
+	{
+		init(nr,nc);
+	}
+
+	array2d( T* p, const int nr, const int nc ) : pa(p), nrow(nr), ncol(nc),heap(false)
+	{
+	}
+
+	array2d( const T& fr ) : array2d(fr.nrow,fr.ncol)
+	{
+		memcpy(pa,fr.pa,nrow*ncol*sizeof(pa[0]));
+	}
+	~array2d()
+	{
+		reset();
+	}
+	bool isoob( const int r, const int c ) const
+	{
+		bool oob = (false
+			|| 0>r
+			|| 0>c
+			|| nrow <= r
+			|| ncol <= c
+		);
+		if(oob)
+			return true;
+		else
+			return false;
+	}
+
+	const T& getac( const int row, const int col ) const
+	{
+		if(pa && !isoob(row,col))
+		{
+			return pa[get_index(row,col)];
+		}
+		else
+		{
+			return pa[0];
+		}
+	}
+
+	T& geta( const int row, const int col )
+	{
+		if(pa && !isoob(row,col))
+		{
+			return pa[get_index(row,col)];
+		}
+		else
+		{
+			return pa[0];
+		}
+	}
+
+	T get( const int row, const int col )
+	{
+		if(pa && !isoob(row,col))
+		{
+			return pa[get_index(row,col)];
+		}
+		else
+		{
+			return pa[0];
+		}
+	}
+	void set( const int row, const int col, const T& val )
+	{
+		if(pa && !isoob(row,col))
+		{
+			pa[get_index(row,col)]=val;
+		}
+		else
+		{
+			;
+		}
+	}
+};
+#endif
 
 #endif

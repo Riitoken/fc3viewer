@@ -4,7 +4,7 @@
 class        license
 type         GLORYWARE
 ipname       FC3
-trademark    FARCRAFTÂ®
+trademark    FARCRAFT®
 author       Ray Edward Bornert II
 date         2020-SEP-22 TUE
 royalty      Free
@@ -20,6 +20,7 @@ endclass
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <queue>
 
 using namespace std;
 
@@ -27,31 +28,6 @@ using namespace std;
 #pragma warning( disable : 4244 ) // conversion from <big> to <small>, possible loss of data
 #pragma warning( disable : 4305 ) // truncation from 'fc3t::intd' to 'double'
 #pragma warning( disable : 4389 ) // '==' and '!=': signed/unsigned mismatch
-
-namespace fc3t {
-
-bool is_valid_types()
-{
-  return(true
-  && ( 1 == sizeof(inta) )
-  && ( 2 == sizeof(intb) )
-  && ( 4 == sizeof(intc) )
-  && ( 8 == sizeof(intd) )
-//&& (16 == sizeof(inte) )
-  && ( 1 == sizeof(unta) )
-  && ( 2 == sizeof(untb) )
-  && ( 4 == sizeof(untc) )
-  && ( 8 == sizeof(untd) )
-//&& (16 == sizeof(unte) )
-//&& ( 1 == sizeof(floa) )
-//&& ( 2 == sizeof(flob) )
-  && ( 4 == sizeof(floc) )
-  && ( 8 == sizeof(flod) )
-//&& (16 == sizeof(floe) )
-  );
-}
-
-}; // end namespace fc3t
 
 void fc3_header_s::reset()
 {
@@ -98,18 +74,32 @@ void fc3_header_s::init()
 	cheight=0;
 }
 
+void fc3_header_s::get_endian( unta& msb, unta& lsb ) const
+{
+	lsb = (endian >> 0) & 0xff;
+	msb = (endian >> 8) & 0xff;
+}
+
+void fc3_header_s::set_endian( unta msb, unta lsb )
+{
+	if(lsb > msb)
+		swap(msb,lsb);
+	endian = 0;
+	endian |= msb;
+	endian <<= 8;
+	endian |= lsb;
+}
+
 bool fc3_header_s::is_endian_valid() const
 {
-	unsigned char lsb = (endian >> 0) & 0xff;
-	unsigned char msb = (endian >> 8) & 0xff;
+	unta msb,lsb; get_endian(msb,lsb);
 	bool valid = (msb != lsb);
 	return valid;
 }
 
 bool fc3_header_s::is_endian_correct() const
 {
-	unsigned char lsb = (endian >> 0) & 0xff;
-	unsigned char msb = (endian >> 8) & 0xff;
+	unta msb,lsb; get_endian(msb,lsb);
 	bool correct = (msb > lsb);
 	return correct;
 }
@@ -117,6 +107,81 @@ bool fc3_header_s::is_endian_correct() const
 bool fc3_header_s::is_do_endian() const
 {
 	return is_endian_valid() && !is_endian_correct();
+}
+
+bool fc3_header_s::is_eE() const
+{
+	unta msb,lsb;
+	get_endian(msb,lsb);
+	return (('e'==msb) && ('E'==lsb));
+}
+
+bool fc3_header_s::get_flag_bit( const int b ) const
+{
+	return (bool)((endian>>b)&1);
+}
+
+void fc3_header_s::set_flag_bit( const int b, const bool v )
+{
+	untb mask = (1<<b);
+	if(v)endian|=mask;else endian&=(~mask);
+}
+
+bool fc3_header_s::has_flags() const
+{
+	return (true==get_flag_bit(15) && false==get_flag_bit(7));
+}
+
+void fc3_header_s::enable_flags()
+{
+	if(is_eE())
+		set_endian(0x80,0x00);
+	set_flag_bit(15,1);
+	set_flag_bit(7,0);
+}
+
+void fc3_header_s::set_alpha( const bool v )
+{
+	enable_flags();
+	set_flag_bit(0,v);
+}
+void fc3_header_s::set_collision( const bool v )
+{
+	enable_flags();
+	set_flag_bit(1,v);
+}
+void fc3_header_s::set_exact( const bool v )
+{
+	enable_flags();
+	set_flag_bit(14,v);
+}
+
+void fc3_s::set_exact( const bool v )
+{
+	h.set_exact(v);
+}
+bool fc3_s::get_exact()const
+{
+	return (1<=h.get_exact());
+}
+
+
+int fc3_header_s::get_alpha() const
+{
+	if(!has_flags()) return (-1); // unknown
+	return (int)get_flag_bit(0);
+}
+
+int fc3_header_s::get_collision() const
+{
+	if(!has_flags()) return (-1); // unknown
+	return (int)get_flag_bit(1);
+}
+
+int fc3_header_s::get_exact() const
+{
+	if(!has_flags()) return (-1); // unknown
+	return (int)get_flag_bit(14);
 }
 
 void fc3_header_s::set_scaling_exponents( const char v, const char t )
@@ -150,7 +215,7 @@ size_t fc3_header_s::calc_file_size() const
 		+ sizeof(*this)
 		+ dz * 8 * nverts
 		+ sizeof(fc3_tri_s::a) * 3 * ntris
-		+ sizeof(fc3t::untc) * cwidth * cheight
+		+ sizeof(untc) * cwidth * cheight
 		;
 	return z;
 }
@@ -238,29 +303,81 @@ struct fc3_file_vertex_template
 	T tx;
 	T ty;
 
-	T get_unit() const
+	T get_unit( const bool exact ) const
 	{
-		return (T)    ( ((U)(~0)) >> 1 )      ;
+		#if 1
+		if(exact)
+		{
+			/*
+				The exact unit offers lossless compression
+				at the expense of 1 bit of resolution.
+
+				This is ideal for models that will be spatially indexed.
+				(like terrain)
+
+				Example:
+					for (b) data and a vertex metric radius of 256 
+					and source data value of 67.25
+
+					  compressed = (67.25f / 256) * 16384 = 4304
+					decompressed = (4304 / 16384) *   256 =   67.25
+
+				type bits  2^(bits-2)
+				====================================
+				inta    8  64
+				intb   16  16,384
+				intc   32  1,073,741,824
+				intd   64  4,611,686,018,427,387,904
+				====================================
+			*/
+			return ((T)1) << (sizeof(U)*8-2);
+		}
+		else
+		#endif
+		{
+			/*
+				The inexact unit offers 1 extra bit of resolution
+				at the expense of lossy vertex compression.
+
+				This option can be a stop-gap to avoid doubling the data size.
+
+				Example:
+					for (b) data and a vertex metric radius of 256 
+					and source data value of 67.25
+
+					  compressed = (67.25f / 256) * 32767 = 8607
+					decompressed = (8607 / 32767) *   256 =   67.24423
+
+				type bits  2^(bits-1)-1
+				====================================
+				inta    8  127
+				intb   16  32,767
+				intc   32  2,147,483,647
+				intd   64  9,223,372,036,854,775,807
+				====================================
+			*/
+			return (T)    ( ((U)(~0)) >> 1 );
+		}
 	}
 
-	void getv( fc3_vecd_t& v )
+	void getv( fc3_vecd_t& v, const bool exact )
 	{
-		const T unit = get_unit();
+		const T unit = get_unit(exact);
 		v.x = vx; v.x /= unit;
 		v.y = vy; v.y /= unit;
 		v.z = vz; v.z /= unit;
 	}
-	void setv( const fc3_vecd_t& v )
+	void setv( const fc3_vecd_t& v, const bool exact )
 	{
-		const T unit = get_unit();
+		const T unit = get_unit(exact);
 		vx = (T)(v.x * unit);
 		vy = (T)(v.y * unit);
 		vz = (T)(v.z * unit);
 	}
 
-	void get( fc3_vec_t& v, fc3_vec_t& n, fc3_vec_t& t )
+	void get( fc3_vec_t& v, fc3_vec_t& n, fc3_vec_t& t, const bool exact )
 	{
-		const T unit = get_unit();
+		const T unit = get_unit(exact);
 		v.x = (float)vx; v.x /= unit;
 		v.y = (float)vy; v.y /= unit;
 		v.z = (float)vz; v.z /= unit;
@@ -274,9 +391,9 @@ struct fc3_file_vertex_template
 		t.z = 0;
 	}
 
-	void set( const fc3_vec_t& v, const fc3_vec_t& n, const fc3_vec_t& t )
+	void set( const fc3_vec_t& v, const fc3_vec_t& n, const fc3_vec_t& t, const bool exact )
 	{
-		const T unit = get_unit();
+		const T unit = get_unit(exact);
 		vx = (T)(v.x * unit);
 		vy = (T)(v.y * unit);
 		vz = (T)(v.z * unit);
@@ -321,6 +438,12 @@ fc3_s::fc3_s( const fc3_s& rval ) :  pt(NULL), pc(NULL), pv(NULL)
 	for(int i=0;i<h.ntris;i++)
 		pt[i] = rval.pt[i];
 	set_image( (unsigned long*)rval.pc, rval.h.cwidth, rval.h.cheight );
+
+	vto.clear();
+	vto = rval.vto;
+
+	vso.clear();
+	vso = rval.vso;
 }
 
 void fc3_s::reset()
@@ -339,12 +462,13 @@ fc3_s::~fc3_s()
 int fc3_s::loadva( FILE* fp )
 {
 	fc3_vert_a v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
 		if(!fread(&v,sizeof(v),1,fp))
 			return fc3_fail_read;
 		// 1 bytes so no endian processing needed
-		v.get( pv[i].v, pv[i].n, pv[i].t );
+		v.get( pv[i].v, pv[i].n, pv[i].t, exact );
 	}
 	return fc3_ok;
 }
@@ -353,6 +477,7 @@ int fc3_s::loadva( FILE* fp )
 int fc3_s::loadvb( FILE* fp, const bool doend )
 {
 	fc3_vert_b v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
 		if(!fread(&v,sizeof(v),1,fp))
@@ -360,7 +485,7 @@ int fc3_s::loadvb( FILE* fp, const bool doend )
 		// 2 bytes so endian check needed
 		if(doend)
 			v.reverse_bytes();
-		v.get( pv[i].v, pv[i].n, pv[i].t );
+		v.get( pv[i].v, pv[i].n, pv[i].t, exact );
 	}
 	return fc3_ok;
 }
@@ -369,13 +494,14 @@ int fc3_s::loadvb( FILE* fp, const bool doend )
 int fc3_s::loadvc( FILE* fp, const bool doend )
 {
 	fc3_vert_c v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
 		if(!fread(&v,sizeof(v),1,fp))
 			return fc3_fail_read;
 		if(doend)
 			v.reverse_bytes();
-		v.get( pv[i].v, pv[i].n, pv[i].t );
+		v.get( pv[i].v, pv[i].n, pv[i].t, exact );
 	}
 	return fc3_ok;
 }
@@ -384,13 +510,14 @@ int fc3_s::loadvc( FILE* fp, const bool doend )
 int fc3_s::loadvd( FILE* fp, const bool doend )
 {
 	fc3_vert_d v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
 		if(!fread(&v,sizeof(v),1,fp))
 			return fc3_fail_read;
 		if(doend)
 			v.reverse_bytes();
-		v.get( pv[i].v, pv[i].n, pv[i].t );
+		v.get( pv[i].v, pv[i].n, pv[i].t, exact );
 	}
 	return fc3_ok;
 }
@@ -404,9 +531,10 @@ int fc3_s::loadvd( FILE* fp ){}
 int fc3_s::saveva( FILE* fp )
 {
 	fc3_vert_a v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
-		v.set( pv[i].v, pv[i].n, pv[i].t );
+		v.set( pv[i].v, pv[i].n, pv[i].t, exact );
 		if(!fwrite(&v,sizeof(v),1,fp))
 			return fc3_fail_write;
 	}
@@ -417,9 +545,10 @@ int fc3_s::saveva( FILE* fp )
 int fc3_s::savevb( FILE* fp )
 {
 	fc3_vert_b v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
-		v.set( pv[i].v, pv[i].n, pv[i].t );
+		v.set( pv[i].v, pv[i].n, pv[i].t, exact);
 		if(!fwrite(&v,sizeof(v),1,fp))
 			return fc3_fail_write;
 	}
@@ -430,9 +559,10 @@ int fc3_s::savevb( FILE* fp )
 int fc3_s::savevc( FILE* fp )
 {
 	fc3_vert_c v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
-		v.set( pv[i].v, pv[i].n, pv[i].t );
+		v.set( pv[i].v, pv[i].n, pv[i].t, exact );
 		if(!fwrite(&v,sizeof(v),1,fp))
 			return fc3_fail_write;
 	}
@@ -443,9 +573,10 @@ int fc3_s::savevc( FILE* fp )
 int fc3_s::savevd( FILE* fp )
 {
 	fc3_vert_d v;
+	bool exact = get_exact();
 	for(unsigned i=0;i<h.nverts;i++)
 	{
-		v.set( pv[i].v, pv[i].n, pv[i].t );
+		v.set( pv[i].v, pv[i].n, pv[i].t, exact );
 		if(!fwrite(&v,sizeof(v),1,fp))
 			return fc3_fail_write;
 	}
@@ -624,8 +755,6 @@ int fc3_s::save( const char* fn )
 			return fc3_fail_write;
 		}
 	}
-	
-	fclose(fp);
 
 	fclose(fp);
 
@@ -640,11 +769,24 @@ void fc3_s::set_scaling_exponents( const signed char v, const signed char t )
 
 void fc3_s::set_vertex_radius( const double r )
 {
-	int i; for(i= -128; i <= +126; i++) if(pow(2.0,i)>=r)break; h.vscale = (char)i;
+	int i; for(i= -128; i <= +126; i++)
+		if(pow(2.0,i)>=r)
+			break;
+
+	h.vscale = (char)i;
 }
 void fc3_s::set_texture_radius( const double r )
 {
-	int i; for(i= -128; i <= +126; i++) if(pow(2.0,i)>=r)break; h.tscale = (char)i;
+	int i; for(i= -128; i <= +126; i++)
+		if(pow(2.0,i)>=r)
+			break;
+
+	h.tscale = (char)i;
+}
+
+double fc3_s::get_vertex_radius() const
+{
+	return pow(2.0,h.vscale);
 }
 
 void fc3_s::find_bounds( fc3_vec_t& vhi, fc3_vec_t& vlo )
@@ -743,12 +885,17 @@ void fc3_s::normalize()
 
 void fc3_s::unheap()
 {
-	if(NULL!=pt) delete pt;
-	if(NULL!=pc) delete pc;
-	if(NULL!=pv) delete pv;
+	if(NULL!=pc)
+		delete pc;
+	if(NULL!=pt)
+		delete pt;
+	if(NULL!=pv)
+		delete pv;
 	pt=NULL;
 	pc=NULL;
 	pv=NULL;
+
+	vto.clear();
 }
 
 /*
@@ -928,6 +1075,22 @@ int fc3_s::convert_axis_to( const string& t )
 	return fc3_ok;
 }
 
+bool fc3__is_valid_abcdef_types()
+{
+	return(true
+	&& ( 1 == sizeof(inta) )
+	&& ( 2 == sizeof(intb) )
+	&& ( 4 == sizeof(intc) )
+	&& ( 8 == sizeof(intd) )
+	&& ( 1 == sizeof(unta) )
+	&& ( 2 == sizeof(untb) )
+	&& ( 4 == sizeof(untc) )
+	&& ( 8 == sizeof(untd) )
+	&& ( 4 == sizeof(floc) )
+	&& ( 8 == sizeof(flod) )
+	);
+}
+
 int fc3_s::unit_test()
 {
 	fc3_s f;
@@ -980,7 +1143,7 @@ int fc3_s::unit_test()
 		}
 	}
 
-	bool isok = fc3t::is_valid_types();
+	bool isok = fc3__is_valid_abcdef_types();
 	if(false == isok)
 		return fc3_fail_test;
 
@@ -1143,7 +1306,6 @@ double fc3_s::get_radius() const
 	where all values are within [-1.0,+1.0].
 */
 
-using namespace fc3t;
 double get_lossy_a( const double V) { const double one= (intd)(              0x7f); double v=V*one; inta i=(inta)v; v=(double)i; v/=one; return fabs(V-v); }
 double get_lossy_b( const double V) { const double one= (intd)(            0x7fff); double v=V*one; intb i=(intb)v; v=(double)i; v/=one; return fabs(V-v); }
 double get_lossy_c( const double V) { const double one= (intd)(        0x7fffffff); double v=V*one; intc i=(intc)v; v=(double)i; v/=one; return fabs(V-v); }
@@ -1374,6 +1536,11 @@ int fc3_s::undup()
 	return (h.nverts=base);
 }
 
+void fc3_s::renorm()
+{
+	calc_normals();
+}
+
 void fc3_s::calc_normals()
 {
 	for(int i=0;i<h.nverts;i++)
@@ -1419,6 +1586,53 @@ void fc3_s::negate_normals()
 		pv[i].n *= -1;
 	}
 }
+
+fc3_error_t fc3_s::make_circle( const int nsides )
+{
+	reset();
+	h.init();
+	h.nverts=2+nsides;
+	h.ntris=nsides;
+	if(false==heap())
+		return fc3_fail_heap;
+
+	// the center of the circle
+	pv[0].v.x = 0;
+	pv[0].v.y = 0;
+	pv[0].v.z = 0;
+	pv[0].t.x = 0.5; // center of texture
+	pv[0].t.y = 0.5; // center of texture
+	pv[0].n.zero();
+	pv[0].n.y = 1;
+
+	const double pi = acos(-1);
+	for(int k=0;k<=nsides;k++)
+	{
+		int i=k+1;
+		double theta = 2*pi * (double)i / nsides;
+		double dcos = cos(theta);
+		double dsin = sin(theta);
+		pv[i].v.x = dsin;
+		pv[i].v.z = dcos;
+		pv[i].v.y = 0;
+
+		pv[i].t.x = (dsin+1)/2;
+		pv[i].t.y = (1-dcos)/2; 
+
+		pv[i].n.zero();
+		pv[i].n.y = 1;
+	}
+
+	for(int i=0;i<nsides;i++)
+	{
+		pt[i].a = 0;
+		pt[i].b = i+1;
+		pt[i].c = i+2;
+	}
+
+	return fc3_ok;
+}
+
 
 /*
 
@@ -1534,7 +1748,7 @@ void fc3_s::add_quad( const fc3_vert_s& va, const fc3_vert_s& vb, const fc3_vert
 }
 
 
-// this will increase the number of triangle faces by a factor of 6
+// this will increase the number of triangle faces by a factor of 4
 // nverts will be current faces * 4 * 3
 fc3_error_t fc3_s::split_faces()
 {
@@ -1783,6 +1997,47 @@ void fc3_s::sphere_texture()
 	}
 }
 
+/*
+	for when the object is mostly flat
+	and we just want a one to one relation between
+	the XZ vertice values and the texture coords
+	we caller should have normalized the geometry
+*/
+void fc3_s::horizontal_texture()
+{
+	normalize();
+
+	for(int i=0;i<h.nverts;i++)
+	{
+		double x = pv[i].v.x;
+		double z = pv[i].v.z;
+
+		pv[i].t.x = (x+1)/2;
+		pv[i].t.y = (z+1)/2;
+	}
+}
+
+/*
+	for when the object is mostly flat
+	and we just want a one to one relation between
+	the XZ vertice values and the texture coords
+	we caller should have normalized the geometry
+*/
+void fc3_s::vertical_texture()
+{
+	normalize();
+
+	for(int i=0;i<h.nverts;i++)
+	{
+		double x = pv[i].v.x;
+		double y = pv[i].v.y;
+
+		pv[i].t.x = (x+1)/2;
+		pv[i].t.y = (y+1)/2;
+	}
+}
+
+
 void fc3_s::center()
 {
 	fc3_vec_t vhi,vlo,vavg;
@@ -1792,12 +2047,30 @@ void fc3_s::center()
 		pv[i].v -= vavg;
 }
 
+/*
+slide the model down to the floor 0
+*/
 void fc3_s::sink()
 {
 	normalize();
 	fc3_vec_t vhi,vlo;
 	find_bounds(vhi,vlo);
 	double dy =  -1.0 - vlo.y;
+	for(int i=0;i<h.nverts;i++)
+	{
+		pv[i].v.y += dy;
+	}
+}
+
+/*
+slide the model up to the celing 1
+*/
+void fc3_s::rise()
+{
+	normalize();
+	fc3_vec_t vhi,vlo;
+	find_bounds(vhi,vlo);
+	double dy =  +1.0 - vhi.y;
 	for(int i=0;i<h.nverts;i++)
 	{
 		pv[i].v.y += dy;
@@ -1868,8 +2141,35 @@ void fc3_s::grow( const float factor )
 	growz(factor);
 }
 
+/*
+untc* fc3_s::combine_images( const fc3_s& a, const fc3_s& b )
+{
+	// images must match width
+	if(a.h.cwidth != b.h.cwidth)
+		return NULL;
+	size_t apix = a.h.get_npix();
+	size_t bpix = b.h.get_npix();
+	untc* ptall = new untc[apix+bpix];
+	if(ptall)
+	{
+		memcpy(&ptall[   0],a.pc,apix*sizeof(a.pc[0]));
+		memcpy(&ptall[apix],b.pc,bpix*sizeof(b.pc[0]));
+	}
+	return ptall;
+}
+*/
+
 fc3_error_t fc3_s::add( const fc3_s& fa )
 {
+	// images must match width
+	if(fa.h.cwidth)
+	{
+		if(h.cwidth != fa.h.cwidth)
+			return fc3_bad_arg;
+		if(h.cheight != fa.h.cheight)
+			return fc3_bad_arg;
+	}
+
 	// make copy of this
 	fc3_s ft=*this;
 
@@ -1879,36 +2179,54 @@ fc3_error_t fc3_s::add( const fc3_s& fa )
 	h.init();
 	h.nverts = ft.h.nverts + fa.h.nverts;
 	h.ntris = ft.h.ntris + fa.h.ntris;
+	h.cwidth = ft.h.cwidth;
+	h.cheight = ft.h.cheight + fa.h.cheight;
 
 	if(false==heap())
 		return fc3_fail_heap;
 
-	ofs=0;
-	for(int i=0;i<ft.h.nverts;i++)
-		pv[i+ofs] = ft.pv[i];
-	ofs=ft.h.nverts;
-	for(int i=0;i<fa.h.nverts;i++)
-		pv[i+ofs] = fa.pv[i];
+	// copy verts
+	memcpy( &pv[          0], &ft.pv[0], sizeof(pv[0]) * ft.h.nverts );
+	memcpy( &pv[ft.h.nverts], &fa.pv[0], sizeof(pv[0]) * fa.h.nverts );
 
-	ofs=0;
-	for(int i=0;i<ft.h.ntris;i++)
-		pt[i+ofs] = ft.pt[i];
-	ofs=ft.h.ntris;
-	for(int i=0;i<fa.h.ntris;i++)
-		pt[i+ofs] = fa.pt[i];
+	// copy tris
+	memcpy( &pt[          0], &ft.pt[0], sizeof(pt[0]) * ft.h.ntris );
+	memcpy( &pt[ft.h.ntris ], &fa.pt[0], sizeof(pt[0]) * fa.h.ntris );
 
-	ofs=ft.h.ntris;
+	// copy images
+	memcpy(&pc[              0],ft.pc,ft.get_image_size());
+	memcpy(&pc[ft.h.get_npix()],fa.pc,fa.get_image_size());
+
+	// massage tries
 	for(int k=0;k<fa.h.ntris;k++)
 	{
-		int i = k+ofs;
+		int i = k + ft.h.ntris;
 		pt[i].a += ft.h.nverts;
 		pt[i].b += ft.h.nverts;
 		pt[i].c += ft.h.nverts;
 	}
 
-	set_image((unsigned long*)ft.pc,ft.h.cwidth,ft.h.cheight);
+	// massage the ft texture coords
+	if(fa.h.cwidth)
+	{
+		for(int i=0;i<ft.h.nverts;i++)pv[i].t.y/=2;
+
+		// massage the fa texture coords
+		ofs=ft.h.nverts;
+		for(int i=0;i<fa.h.nverts;i++)pv[i+ofs].t.y/=2;
+		for(int i=0;i<fa.h.nverts;i++)pv[i+ofs].t.y+=0.5;
+	}
 
 	return fc3_ok;
+}
+
+fc3_error_t fc3_s::add( const string& fn )
+{
+	fc3_s fc3;
+	int r = fc3.load(fn.c_str());
+	if(fc3_ok != r)
+		return (fc3_error_t)r;
+	return add(fc3);
 }
 
 void fc3_s::move( const fc3_vec_t dv )
@@ -2010,15 +2328,6 @@ unsigned long long int fc3_s::get_image_hash_one() const
 	return 0;
 }
 
-double fc3_s::yfloor()
-{
-	fc3_vec_t vhi,vlo;
-	find_bounds( vhi,vlo );
-	double dy = 0-vlo.y;
-	movey( dy ); // vertical move that will put the lowest y value on the zero plane
-	return dy;
-}
-
 fc3_error_t fc3_s::add_verts( const fc3_vert_s* va, const int nv )
 {
 	fc3_s fc;
@@ -2108,10 +2417,11 @@ fc3_error_t fc3_s::save_triangle_endian(const char* fn, const bool doend)
 	// NO h. refs beyond here because it is no longer native
 
 	// verts
+	bool exact = h.get_exact();
 	for(int i=0;i<3;i++)
 	{
 		fc3_vert_b vv;
-		vv.set( pv[i].v, pv[i].n, pv[i].t );
+		vv.set( pv[i].v, pv[i].n, pv[i].t, exact );
 		if(doend)
 			vv.reverse_bytes();
 		if(!fwrite(&vv,sizeof(vv),1,fp))
@@ -2323,4 +2633,741 @@ int fc3_s::get_header( const char* fn, fc3_header_s& h )
 		return fc3_fail_read;
 	return fc3_ok;
 }
+
+int fc3_s::copy_image( const fc3_s& fr, fc3_s& to )
+{
+	if(NULL==fr.pc)
+		return fc3_bad_arg;
+	if(NULL!=to.pc)
+	{
+		delete to.pc;
+		to.pc=NULL;
+	}
+	to.h.cwidth=fr.h.cwidth;
+	to.h.cheight=fr.h.cheight;
+	size_t npix = to.h.cwidth * to.h.cheight;
+	to.pc = new unsigned int[ npix ];
+	if(NULL==to.pc)
+	{
+		return fc3_fail_heap;
+	}
+	memcpy( to.pc, fr.pc, sizeof(to.pc[0]) * npix);
+	return fc3_ok;
+}
+
+bool fc3_s::set_alpha( const unsigned int* pbits, const size_t cw, const size_t ch )
+{
+	if(NULL==pbits)
+		return false;
+	if(cw != h.cwidth || ch != h.cheight)
+		return false;
+
+	if(NULL==pc)
+		return set_image(pbits,cw,ch);
+
+	size_t npix = cw*ch;
+	for(int i=0;i<npix;i++)
+	{
+		pc[i] &= 0x00ffffff;
+		pc[i] |= (pbits[i] & 0xff000000);
+	}
+	return true;
+}
+
+int fc3_s::count_unused_verts() const
+{
+	bool *pused = new bool[h.nverts];
+	if(NULL==pused)
+		return fc3_fail_heap;
+
+	for(int i=0;i<h.nverts;i++) pused[i]=false;
+
+	for(int i=0;i<h.ntris;i++)
+	{
+		pused[ pt[i].a ] = true;
+		pused[ pt[i].b ] = true;
+		pused[ pt[i].c ] = true;
+	}
+
+	int unused=0;
+	for(int i=0;i<h.nverts;i++)
+	{
+		if(false==pused[i])
+			unused++;
+	}
+
+	delete pused;
+
+	return unused;
+}
+
+/*
+	this will TAKE the pointer
+	pbits must be null
+*/
+void fc3_s::take_image( unsigned int* &pbits, int& width, int& height )
+{
+	// must avoid memory leaks
+	if(NULL!=pbits)return;
+
+	pbits = pc; pc=NULL;
+	width = h.cwidth; h.cwidth=0;
+	height = h.cheight; h.cheight=0;
+}
+
+/*
+	this will GIVE the pointer
+	pc must be null
+*/
+void fc3_s::give_image( unsigned int* &pbits, int& width, int& height )
+{
+	// must avoid memory leaks
+	if(NULL!=pc)return;
+
+	pc = pbits; pbits=NULL;
+	h.cwidth = width; width=0;
+	h.cheight = height; height=0;
+
+}
+
+bool fc3_s::is_intersected( const fc3_tri_s& tri, const fc3_vec_t& v, const fc3_vec_t& dir )
+{
+    fc3_vertf_s& va = pv[tri.a];
+    fc3_vertf_s& vb = pv[tri.b];
+    fc3_vertf_s& vc = pv[tri.c];
+
+    fc3_vec_t edge1 = vb.v - va.v;
+    fc3_vec_t edge2 = vc.v - va.v;
+	fc3_vec_t h = fc3_vec_t::cross( dir,edge2 );
+    float a = fc3_vec_t::dot(edge1, h);
+
+	const float eps = 0.00001;
+    if (a > -eps && a < +eps)
+	{
+        return false;
+    }
+
+    float f = 1.0f / a;
+    fc3_vec_t s = v-va.v;
+    float u = f * fc3_vec_t::dot(s, h);
+
+    if (u < 0.0 || u > 1.0)
+	{
+        return false;
+    }
+
+    fc3_vec_t q = fc3_vec_t::cross(s, edge1);
+    float v_param = f * fc3_vec_t::dot(dir, q);
+
+    if (v_param < 0.0 || u + v_param > 1.0)
+	{
+        return false;
+    }
+
+    float t = f * fc3_vec_t::dot(edge2, q);
+
+    return t > eps;
+}
+
+bool fc3_s::is_inside(const fc3_vec_t& v)
+{
+	fc3_vec_t dir(0,0,-1); // standard opengl forward
+
+    int num_intersections = 0;
+    for (int i = 0; i < h.ntris; i++)
+    if (is_intersected(pt[i], v, dir))
+        num_intersections++;
+
+    return (num_intersections&1); // odd is true
+}
+
+/*
+	the goal here is to identify triangle groups that are connected by vertex
+	for any given triangle in object a, each vertex is in object a
+	the rule is that a triangle may be associated with only a single object
+	and the same for vertexes.
+*/
+int fc3_s::make_parts()
+{
+	if(NULL==pv)
+		return 0;
+
+	//for(int i=0;i<fc3.h.nverts;i++)fc3.pv[i].t.zero();
+	undup(); // this guarantees sorted verts v then t
+
+	// ok the fc3 object has merged vertices
+	// and we can use the texture fields for work
+
+	struct painter_s
+	{
+		fc3_s& fc3;
+		int color;
+		int joins;
+		painter_s( fc3_s& f ) : fc3(f),color(0),joins(0) {}
+
+		void reset()
+		{
+			color=0;
+			for(int i=0;i<fc3.h.nverts;i++)
+				fc3.pv[i].t.z=0;
+		}
+
+		//bool isvpaint( const unsigned ndx ){ return 0 != fc3.pv[ndx].t.z; }
+
+		// must be fully painted
+		bool istpaint( const unsigned tndx )
+		{
+			return ( true
+				&& fc3.pv[ fc3.pt[tndx].a ].t.z
+				&& fc3.pv[ fc3.pt[tndx].b ].t.z
+				&& fc3.pv[ fc3.pt[tndx].c ].t.z
+				);
+		}
+
+		// any triangle with intersecting indexes
+		void tpaint_all( const int a, const int b, const int c, const int clr )
+		{
+			int nt = fc3.h.ntris;
+			for(int i=0;i<nt;i++)
+				if(fc3.pt[i].isv(a) || fc3.pt[i].isv(b) || fc3.pt[i].isv(c))
+					if(!istpaint(i))
+						tpaint( i,clr );
+		}
+
+		// single triangle
+		void tpaint( const unsigned tndx, const int clr )
+		{
+			int aa,bb,cc;
+			fc3.pv[ aa=fc3.pt[tndx].a ].t.z = clr;
+			fc3.pv[ bb=fc3.pt[tndx].b ].t.z = clr;
+			fc3.pv[ cc=fc3.pt[tndx].c ].t.z = clr;
+			tpaint_all(aa,bb,cc,clr);
+		}
+
+		void change_color( const int fr, const int to )
+		{
+			for(int i=0;i<fc3.h.nverts;i++)
+				if(fc3.pv[i].t.z == fr)
+					fc3.pv[i].t.z = to;
+		}
+
+		void join_space()
+		{
+			joins=0;
+			for(int j=  0;j<fc3.h.nverts-1;j++)
+			for(int i=j+1;i<fc3.h.nverts-0;i++)
+			if(fc3.pv[i].t.z != fc3.pv[j].t.z)
+			if(fc3.pv[i].v == fc3.pv[j].v)
+			{
+				int lo = fc3.pv[j].t.z;
+				int hi = fc3.pv[i].t.z;
+				if(hi<lo)
+					swap(hi,lo);
+				change_color(hi,lo);
+				joins++;
+			}
+		}
+
+		int paint()
+		{
+			reset();
+			color=0;
+			int nt = fc3.h.ntris;
+			for(int i=0;i<nt;i++)
+				if(!istpaint(i))
+					tpaint((unsigned)i,++color);
+			join_space();
+			return color-joins;
+		}
+
+		void verify()
+		{
+			int nbad=0;
+			for(int i=0;i<fc3.h.ntris;i++)
+			{
+				int a = fc3.pt[i].a;
+				int b = fc3.pt[i].b;
+				int c = fc3.pt[i].c;
+				int aa = fc3.pv[ a ].t.z;
+				int bb = fc3.pv[ b ].t.z;
+				int cc = fc3.pv[ c ].t.z;
+
+				if(false
+					|| aa == 0
+					|| aa != bb
+					|| aa != cc
+					)
+				{
+					nbad++;
+					printf("[%5d] bad triangle [%d %d %d] [%d %d %d]\n",i,a,b,c,aa,bb,cc);
+				}
+			}
+			printf(" %d of %d triangles bad\n",nbad,fc3.h.ntris);
+			printf("%d colors\n",color);
+			printf("%d joins\n",joins);
+			printf("%d parts\n",color-joins);
+			int orphan=0;
+			for(int i=0;i<fc3.h.nverts;i++)
+				if(fc3.pv[i].t.z==0)
+					orphan++;
+			printf("%d orphan verts\n",orphan);
+		}
+
+		void print()
+		{
+		printf("\n");
+		for(int i=0;i<50 && i<fc3.h.nverts; i++)
+		{
+			printf("[%2d][%2d] %+9.7f %+9.7f %+9.7f\n"
+				,i
+				,(int)fc3.pv[i].t.z
+				,fc3.pv[i].v.x
+				,fc3.pv[i].v.y
+				,fc3.pv[i].v.z
+			);
+		}
+		printf("\n");
+		printf("\n");
+		for(int i=0;i<50 && i<fc3.h.ntris; i++)
+		{
+			printf("[%2d] %2d %2d %2d\n"
+				,i
+				,fc3.pt[i].a
+				,fc3.pt[i].b
+				,fc3.pt[i].c
+			);
+		}
+		printf("\n");
+		}
+
+	};
+	painter_s pa(*this);
+	int nc = pa.paint();
+	pa.verify();
+
+	return nc;
+}
+
+size_t fc3_s::get_image_size() const
+{
+	if(pc)
+		return sizeof(pc[0]) * h.get_npix();
+	return 0;
+}
+
+struct mtl_s
+{
+	map<string,map<string,string>> m;
+};
+
+int fc3_s::load_materials(  const string& fn, mtl_s& mtl )
+{
+	FILE* fp = fopen(fn.c_str(),"r");
+	if(NULL==fp)
+		return -1;
+
+	map<string,string> lr; lr.clear();
+	string mname="";
+
+	while(!feof(fp))
+	{
+		char line[256]; line[0]=0;
+		if(NULL==fgets(line,sizeof(line),fp))
+			break;
+		char lval[256];lval[0]=0;
+		char rval[256];rval[0]=0;
+		int result = sscanf(line,"%s %[^\r\n]s",lval,rval);
+		if(2!=result)
+			continue;
+		string s = lval;
+
+		if(s=="newmtl")
+		{
+			mtl.m[mname] = lr;
+			lr.clear();
+			mname = rval;
+		}
+		else
+		if(s>" " && s[0]!='#')
+		{
+			lr[s]=rval;
+		}
+	}
+	mtl.m[mname] = lr;
+	fclose(fp);
+	return 0;
+}
+
+
+double fc3_s::get_metric_radius( const string& fn )
+{
+	FILE* fp = fopen(fn.c_str(),"rb");
+	if(NULL==fp)
+		return 0;
+	fc3_header_s h;
+	memset(&h,0,sizeof(h));
+	fread(&h,sizeof(h),1,fp);
+	fclose(fp);
+	if(false==h.is_valid_file_signature())
+		return 0;
+	double radius = pow(2,h.vscale) * h.unitlen;
+	return radius;
+}
+
+// delta is [0,255]
+void fc3_s::add_channel( const int ch, const int delta )
+{
+	if(NULL==pc)return;
+	if(ch < 0 || 3 < ch) return;
+
+	unta* pa = (unta*)pc;
+	for(int i=0;i<h.get_npix();i++)
+	{
+		unta v = pa[ch];
+		int k = delta + v;
+		if(0>k)k=0;else if(255<k)k=255;
+		v=k;
+		pa[ch] = v;
+		pa+=sizeof(pc[0]);
+	}
+}
+
+double fc3_s::yfloor()
+{
+	fc3_vec_t vhi,vlo;
+	find_bounds( vhi,vlo );
+	double dy = 0-vlo.y;
+	movey( dy ); // vertical move that will put the lowest y value on the zero plane
+	return dy;
+}
+double fc3_s::yceil()
+{
+	fc3_vec_t vhi,vlo;
+	find_bounds( vhi,vlo );
+	double dy = 0-vhi.y;
+	movey( dy ); // vertical move that will put the lowest y value on the zero plane
+	return dy;
+}
+
+int fc3_s::set_objects( const std::vector<std::string>& vs, const std::vector<unta>& va )
+{
+	if(va.size() != h.ntris)
+		return fc3_bad_arg;
+	vso.clear(); vso = vs;
+	vto.clear(); vto = va;
+	return h.ntris;
+}
+
+fc3_error_t fc3_s::make_globe( const int nrows )
+{
+	reset();
+	h.init();
+	int ncols=nrows*2;
+	int nquads = (nrows*ncols);
+	h.nverts = (nrows+1)*(ncols+1) + nquads;
+	h.ntris = nquads*4;
+	if(!heap())
+	{
+		unheap();
+		return fc3_fail_heap;
+	}
+
+	const double pi = acos(-1);
+	double R = 1;
+
+	int nv=0;
+	for(int r=0;r<=nrows;r++)
+	for(int c=0;c<=ncols;c++)
+	{
+		double lonpct = (double)c / ncols;
+		double latpct = (double)r / nrows;
+
+		double lonrad = 2*pi*lonpct;
+		double latrad = 1*pi*latpct; latrad -= pi/2;
+
+		double dx = R * sin(lonrad);
+		double dz = R * cos(lonrad);
+		double dy = R * sin(latrad);
+		double dh = 1 * cos(latrad);
+
+		dx *= dh;
+		dz *= dh;
+
+		fc3_vertf_s& vv = pv[r*(ncols+1)+c];
+
+		vv.v.x = dx;
+		vv.v.y = dy;
+		vv.v.z = dz;
+
+		vv.n.x = dx;
+		vv.n.y = dy;
+		vv.n.z = dz;
+
+		vv.n.normalize();
+
+		vv.t.x = c;
+		vv.t.y = r;
+
+		nv++;
+	}
+
+	int nt=0;
+	for(int r=0;r<nrows;r++)
+	for(int c=0;c<ncols;c++)
+	{
+		int ll = r*(ncols+1)+c;
+		int lr = r*(ncols+1)+c+1;
+
+		int ul = (r+1)*(ncols+1)+c;
+		int ur = (r+1)*(ncols+1)+c+1;
+
+		int cc = nv++;
+
+		pv[cc] = pv[ll];
+		pv[cc].t.x += 0.5;
+		pv[cc].t.y += 0.5;
+		pv[cc].v += pv[lr].v;
+		pv[cc].v += pv[ur].v;
+		pv[cc].v += pv[ul].v;
+		pv[cc].v *= 0.25;
+		pv[cc].n = pv[cc].v;
+		pv[cc].n.normalize();
+
+		pt[nt].a = cc;
+		pt[nt].b = ll;
+		pt[nt].c = lr;
+		nt++;
+
+		pt[nt].a = cc;
+		pt[nt].b = lr;
+		pt[nt].c = ur;
+		nt++;
+
+		pt[nt].a = cc;
+		pt[nt].b = ur;
+		pt[nt].c = ul;
+		nt++;
+
+		pt[nt].a = cc;
+		pt[nt].b = ul;
+		pt[nt].c = ll;
+		nt++;
+	}
+
+	if(h.ntris != nt)
+	{
+		assert(false);
+	}
+
+	return fc3_ok;
+}
+
+int fc3_s::get_triangle_bounds( const untc tndx,  fc3_vec_t& vhi, fc3_vec_t& vlo )
+{
+	if(h.ntris <= tndx)
+		return -1;
+	if(NULL==pt)
+		return -2;
+
+	int a = pt[tndx].a;
+	int b = pt[tndx].b;
+	int c = pt[tndx].c;
+
+	fc3_vertf_s& va = pv[a];
+	fc3_vertf_s& vb = pv[b];
+	fc3_vertf_s& vc = pv[c];
+
+	vlo.x = min(va.v.x,vb.v.x);
+	vlo.y = min(va.v.y,vb.v.y);
+	vlo.z = min(va.v.z,vb.v.z);
+	vlo.x = min(vlo.x,vc.v.x);
+	vlo.y = min(vlo.y,vc.v.y);
+	vlo.z = min(vlo.z,vc.v.z);
+
+	vhi.x = max(va.v.x,vb.v.x);
+	vhi.y = max(va.v.y,vb.v.y);
+	vhi.z = max(va.v.z,vb.v.z);
+	vhi.x = max(vhi.x,vc.v.x);
+	vhi.y = max(vhi.y,vc.v.y);
+	vhi.z = max(vhi.z,vc.v.z);
+
+	return 0;
+}
+
+void fc3_s::delete_vert()
+{
+	if(NULL==pv)
+		return;
+	delete pv;
+	pv=NULL;
+	h.nverts=0;
+}
+
+void fc3_s::delete_tri()
+{
+	if(NULL==pt)
+		return;
+	delete pt;
+	pt=NULL;
+	h.ntris=0;
+}
+
+void fc3_s::delete_img()
+{
+	if(NULL==pc)
+		return;
+	delete pc;
+	pc=NULL;
+	h.cwidth = h.cheight = 0;
+}
+
+fc3_error_t fc3_s::make_platform( const int dimquads, const int curvequads )
+{
+	reset();
+	h.init();
+
+	int nquads = dimquads*dimquads;
+	int nvcorner = (dimquads+1)*(dimquads+1);
+	int nvcenter = nquads;
+
+	h.ntris = nquads*4;
+	h.nverts= nvcorner + nvcenter;
+
+	if(false==heap())
+		return fc3_fail_heap;
+
+	int k=0;
+	const int cbase = nvcorner;
+	for(int z=0;z<=dimquads;z++)
+	for(int x=0;x<=dimquads;x++)
+	{
+		pv[k].v.z=z;
+		pv[k].v.x=x;
+		pv[k].v.y = curvequads;
+		pv[k].n.zero();
+		pv[k].t.x= (double)x / dimquads;
+		pv[k].t.y= 1-(double)z / dimquads;
+		pv[k].t.z= 0;
+		k++;
+	}
+	if(k != nvcorner)
+	{
+		assert(false);
+	}
+
+	const double edge = dimquads-curvequads;
+	for(int i=0;i<nvcorner;i++)
+	{
+		double z = pv[i].v.z;
+		double x = pv[i].v.x;
+
+		//low z edge
+		if(z < curvequads)
+		{
+			double zcos = (double)(curvequads-z) / curvequads;
+			double zsin = sqrt(1-zcos*zcos) * curvequads;
+			double y = pv[i].v.y;
+			pv[i].v.y=min(y,zsin);
+		}
+
+		//low x edge
+		if(x < curvequads)
+		{
+			double xcos = (double)(curvequads-x) / curvequads;
+			double xsin = sqrt(1-xcos*xcos) * curvequads;
+			double y = pv[i].v.y;
+			pv[i].v.y = min(y,xsin);
+		}
+
+		//hi z edge
+		if(z >= edge)
+		{
+			double zcos = (z-edge) / curvequads;
+			double zsin = sqrt(1-zcos*zcos) * curvequads;
+			double y = pv[i].v.y;
+			pv[i].v.y = min(y,zsin);
+		}
+
+		//hi x edge
+		if(x >= edge)
+		{
+			double xcos = (x-edge) / curvequads;
+			double xsin = sqrt(1-xcos*xcos) * curvequads;
+			double y = pv[i].v.y;
+			pv[i].v.y = min(y,xsin);
+		}
+	}
+
+	// average all the centers
+	for(int z=0;z<dimquads;z++)
+	for(int x=0;x<dimquads;x++)
+	{
+		int a = (dimquads+1)*z + x;
+		int b = a+dimquads+1;
+		int c = b+1;
+		int d = a+1;
+		int o = cbase + dimquads*z+x;
+
+		fc3_vert_s v1 = calc_average( pv[a],pv[b] );
+		fc3_vert_s v2 = calc_average( pv[c],pv[d] );
+
+		pv[o] = calc_average( v1,v2 );
+	}
+
+	k=0;
+	for(int z=0;z<dimquads;z++)
+	for(int x=0;x<dimquads;x++)
+	{
+		int a = (dimquads+1)*z + x;
+		int b = a+dimquads+1;
+		int c = b+1;
+		int d = a+1;
+		int o = cbase + dimquads*z+x;
+
+		pt[k].a=o;
+		pt[k].b=a;
+		pt[k].c=b;
+		k++;
+
+		pt[k].a=o;
+		pt[k].b=b;
+		pt[k].c=c;
+		k++;
+
+		pt[k].a=o;
+		pt[k].b=c;
+		pt[k].c=d;
+		k++;
+
+		pt[k].a=o;
+		pt[k].b=d;
+		pt[k].c=a;
+		k++;
+	}
+
+	if(k != h.ntris)
+	{
+		assert(false);
+	}
+
+	fc3_s w = *this;
+
+	for(int i=0;i<w.h.nverts;i++)
+	{
+		pv[i].v.y *= -1;
+	}
+
+	for(int i=0;i<w.h.ntris;i++)
+	{
+		swap( pt[i].b, pt[i].c );
+	}
+
+	add( w );
+
+	w.reset();
+
+	return fc3_ok;
+	
+}
+
 

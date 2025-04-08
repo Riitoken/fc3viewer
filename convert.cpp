@@ -71,28 +71,44 @@ int fc3_s::export_obj_mtl( const string& fn, const string& mtl )
 		write_mtl(mfn,mtl);
 	}
 
+
+	int zlo=h.nverts+1;
+	int zhi=0;
 	for(int i=0;i<h.nverts;i++)
 	{
 		fc3_vert_s& v = pv[i];
+		if(v.t.z > zhi)zhi=v.t.z;
+		if(v.t.z < zlo)zlo=v.t.z;
 		fprintf(fp,"v %f %f %f\n",v.v.x,v.v.y,v.v.z);
 		fprintf(fp,"vn %f %f %f\n",v.n.x,v.n.y,v.n.z);
 		fprintf(fp,"vt %f %f\n",v.t.x,v.t.y);
 		fprintf(fp,"\n");
 	}
 
-	for(int i=0;i<h.ntris;i++)
+	for(int z=zlo;z<=zhi;z++)
 	{
-		fc3_tri_s& t = pt[i];
-		int a = t.a+1;
-		int b = t.b+1;
-		int c = t.c+1;
-		fprintf(fp,"f %d/%d/%d %d/%d/%d %d/%d/%d\n"
-			,a,a,a
-			,b,b,b
-			,c,c,c
-		);
-	}
+		bool flag=false;
+		for(int i=0;i<h.ntris;i++)
+		{
+			fc3_tri_s& t = pt[i];
 
+			if(z != pv[ t.a ].t.z)
+				continue;
+
+			if(!flag)
+				fprintf(fp,"o main.%d\n",z);
+			flag=true;
+
+			int a = t.a+1;
+			int b = t.b+1;
+			int c = t.c+1;
+			fprintf(fp,"f %d/%d/%d %d/%d/%d %d/%d/%d\n"
+				,a,a,a
+				,b,b,b
+				,c,c,c
+			);
+		}
+	}
 	fclose(fp);
 
 	return 0;
@@ -286,5 +302,36 @@ int fc3_s::import_obj( const string& fn )
 
 	return 0;
 }
+
+#if 0
+void path_suffix( string& path )
+{
+	if(path <= " ")
+	{
+		path = "./";
+	}
+	else
+	{
+		char c = path[path.length()-1];
+		if( '\\' != c && '/' != c)
+			path += "/";
+	}
+}
+
+int fc3_s::split_obj( string& path, const string& objnam )
+{
+	path_suffix(path);
+	string fn = path + objnam;
+	FILE* fp = fopen(fn.c_str(),"r");
+	if(NULL==fp)
+		return fc3_fail_open;
+
+
+
+	fclose(fp);
+
+}
+#endif
+
 
 #undef vector3f
